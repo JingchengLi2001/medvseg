@@ -1,0 +1,11 @@
+opencv-python==4.10.0.84
+albumentations==1.4.8
+scikit-image==0.24.0
+scipy>=1.11
+numpy>=1.24
+tqdm
+matplotlib
+pyyaml
+rich
+tensorboard
+segmentation-models-pytorch==0.3.3

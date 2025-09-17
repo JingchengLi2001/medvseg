@@ -1,0 +1,18 @@
+train:
+epochs: 50
+batch_size: 8
+lr: 0.001
+weight_decay: 0.0001
+num_workers: 4
+mixed_precision: true
+model:
+backbone: resnet34
+in_channels: 3 # 若使用 3帧堆叠，可设为 9
+classes: 1
+loss:
+dice_weight: 1.0
+bce_weight: 1.0
+boundary_weight: 1.0
+filter:
+iou_th: 0.7
+cycle_th: 1.5

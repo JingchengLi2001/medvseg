@@ -26,8 +26,15 @@ class FrameMaskDataset(Dataset):
         imgp, mp = self.items[i]
         img = cv2.imread(str(imgp))[:, :, ::-1]
         mask = cv2.imread(str(mp), cv2.IMREAD_GRAYSCALE)
+
+        # ★ 关键：对齐尺寸（NEAREST，避免边缘模糊/灰阶）
+        h, w = img.shape[:2]
+        if mask.shape[:2] != (h, w):
+            mask = cv2.resize(mask, (w, h), interpolation=cv2.INTER_NEAREST)
+
         mask = (mask > 127).astype(np.uint8) * 255
         aug = self.transform(image=img, mask=mask)
         x = aug['image'].float() / 255.0
         y = (aug['mask'].float() / 255.0).unsqueeze(0)
         return x, y, str(imgp)
+

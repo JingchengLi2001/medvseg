@@ -9,9 +9,10 @@ train_tf = A.Compose([
     A.HueSaturationValue(10,10,10,p=0.3),
     A.MotionBlur(3,p=0.2),
     ToTensorV2()
-])
+], is_check_shapes=False)
 
 val_tf = A.Compose([
     A.Resize(512, 512),
     ToTensorV2()
-])
+], is_check_shapes=False)
+

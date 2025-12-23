@@ -42,7 +42,6 @@ def train(data_root: str, val_root: str, save_dir: str,
             scaler.update()
             pbar.set_postfix(loss=f'{loss.item():.4f}')
 
-        # 验证
         model.eval()
         dices, ious = [], []
         with torch.no_grad():

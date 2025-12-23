@@ -1,17 +1,68 @@
-# Python
+############################
+# 1) 数据/产物（只忽略根目录）
+############################
+/data/
+/input_data/
+/outputs/
+/runs/
+
+# 如果你有类似这些临时目录也一起忽略（没有也无妨）
+/tmp/
+/logs/
+
+############################
+# 2) 模型权重/训练产物/大文件
+############################
+*.pth
+*.pt
+*.ckpt
+*.onnx
+*.tflite
+*.engine
+
+*.npy
+*.npz
+*.pkl
+*.pickle
+
+# 视频/大图（如果你确实想提交示例视频/图片，再用 ! 例外放开）
+*.mp4
+*.avi
+*.mov
+*.mkv
+
+############################
+# 3) 第三方：只忽略权重/缓存，不忽略代码
+############################
+/third_party/**/saves/
+/third_party/**/checkpoints/
+/third_party/**/weights/
+/third_party/**/.cache/
+
+############################
+# 4) Python 常规
+############################
 __pycache__/
-*.py[cod]
-*.DS_Store
+*.pyc
+*.pyo
+*.pyd
+.ipynb_checkpoints/
+.pytest_cache/
+.mypy_cache/
 
-# Virtual env
-venv/ .venv/ env/ .env/
+# 虚拟环境
+.venv/
+venv/
+env/
 
-# IDE
-.idea/ .vscode/
+# 构建产物
+build/
+dist/
+*.egg-info/
 
-# Outputs / logs
-outputs/ *.log
-
-# Data & models
-data/
-*.pth *.ckpt
+############################
+# 5) 系统/编辑器
+############################
+.DS_Store
+.idea/
+.vscode/

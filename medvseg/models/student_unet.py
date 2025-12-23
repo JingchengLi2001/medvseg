@@ -6,9 +6,10 @@ class StudentUNet(nn.Module):
         super().__init__()
         self.net = smp.Unet(
             encoder_name=backbone,
-            encoder_weights='imagenet',
+            encoder_weights=None,   # 离线稳定：不下载 imagenet 权重
             in_channels=in_channels,
             classes=classes
         )
+
     def forward(self, x):
         return self.net(x)

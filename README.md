@@ -456,7 +456,8 @@ Albumentations 在执行增强前会检查 `image.shape == mask.shape`，若不�
 ---
 
 ## 13. 复现实验建议
-
+* 服务器从github上拉代码时，采用
+git -c http.version=HTTP/1.1 clone --depth 1 https://github.com/JingchengLi2001/medvseg.git
 ### 13.1 最小复现
 
 * 单视频（20s）+ 单帧标注（1 张）

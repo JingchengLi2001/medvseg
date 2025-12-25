@@ -5,6 +5,7 @@
 /input_data/
 /outputs/
 /runs/
+/frames_and_masks/
 
 # 如果你有类似这些临时目录也一起忽略（没有也无妨）
 /tmp/

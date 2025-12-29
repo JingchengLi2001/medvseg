@@ -30,11 +30,12 @@ class FrameMaskDataset(Dataset):
         img = cv2.imread(str(imgp))
         if img is None:
             raise RuntimeError(f"Failed to read image: {imgp}")
-        img = img[:, :, ::-1]  # BGR->RGB
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = np.ascontiguousarray(img)  # avoid negative stride
         mask = cv2.imread(str(mp), cv2.IMREAD_GRAYSCALE)
         if mask is None:
             raise RuntimeError(f"Failed to read mask: {mp}")
-        mask = (mask > 0).astype(np.uint8) * 255  # 只要>0都视为前景（适配你的手标）
+        # keep grayscale to support uncertainty-encoded masks (0..255) (0..255)
         aug = self.transform(image=img, mask=mask)
         x = aug['image'].float() / 255.0
         y = (aug['mask'].float() / 255.0).unsqueeze(0)

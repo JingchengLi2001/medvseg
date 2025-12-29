@@ -65,13 +65,17 @@ def propagate_clip(frames_dir: Path,
         imgs.append(img)
         cv2.imwrite(str(out_frames_dir / fp.name), img)
 
-    # 2) 计算并保存所有 forward flows（不依赖种子）
-    flows = []
+    # 2) 计算并保存双向 flows（不依赖种子）
+    flows_fwd = []
+    flows_bwd = []
     for i in range(len(imgs) - 1):
-        flow_fwd = farneback_flow(imgs[i], imgs[i + 1])  # i -> i+1
-        flows.append(flow_fwd)
         a, b = frames[i], frames[i + 1]
+        flow_fwd = farneback_flow(imgs[i], imgs[i + 1])  # a -> b
+        flow_bwd = farneback_flow(imgs[i + 1], imgs[i])  # b -> a
+        flows_fwd.append(flow_fwd)
+        flows_bwd.append(flow_bwd)
         np.save(str(out_flow_dir / f"{a.stem}_to_{b.stem}.npy"), flow_fwd)
+        np.save(str(out_flow_dir / f"{b.stem}_to_{a.stem}.npy"), flow_bwd)
 
     if flows_only:
         return
@@ -118,24 +122,28 @@ def propagate_clip(frames_dir: Path,
 
     def save_mask(name: str, m: torch.Tensor):
         outp = out_masks_dir / name
-        cv2.imwrite(str(outp), (m[0, 0].cpu().numpy() * 255).astype("uint8"))
+        arr = (m[0, 0].detach().cpu().numpy() > 0.5).astype('uint8') * 255
+        cv2.imwrite(str(outp), arr)
+
 
     # 5) 写入 seed 本身
     save_mask(frames[seed_idx].name, m_seed)
 
-    # 6) 向后传播：i -> i+1 用 -flow(i) 近似 backward
+    # 6) 向后传播：i -> i+1 用真实 backward flow (i+1 -> i)
     m = m_seed.clone()
     for i in range(seed_idx, len(frames) - 1):
-        flow_fwd = flows[i]           # i -> i+1
-        m = warp_mask(m, -flow_fwd)   # 对齐到 i+1
+        flow_bwd = flows_bwd[i]       # (i+1) -> i
+        m = warp_mask(m, flow_bwd)
+        m = (m > 0.5).float()  # binarize after warp    # 对齐到 i+1
         save_mask(frames[i + 1].name, m)
 
     # 7) 向前传播：要得到 i 的 mask（target=i），source=i+1
     #    warp_mask 需要 flow(target->source)=flow(i->i+1)，刚好就是 flows[i]
     m = m_seed.clone()
     for i in range(seed_idx - 1, -1, -1):
-        flow_fwd = flows[i]          # i -> i+1
-        m = warp_mask(m, flow_fwd)   # 输出对齐到 i
+        flow_fwd = flows_fwd[i]      # i -> i+1
+        m = warp_mask(m, flow_fwd)
+        m = (m > 0.5).float()  # binarize after warp   # 输出对齐到 i
         save_mask(frames[i].name, m)
 
 

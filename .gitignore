@@ -67,3 +67,9 @@ dist/
 .DS_Store
 .idea/
 .vscode/
+
+# local backups / patches / archives
+*.bak_*
+*.patch
+*.zip
+code/

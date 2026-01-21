@@ -70,7 +70,7 @@ def train(
 
     # IMPORTANT: ComboLoss now treats soft labels (0<y<1) as "uncertain foreground" with lower weight.
     # This fixes the "clear lesion but too conservative" behavior caused by directly training BCE on y=0.3.
-    loss_fn = ComboLoss(1.0, 1.0, 1.0)
+    loss_fn = ComboLoss(1.0, 1.0, 0.0)
 
     best = -1.0
     for ep in range(1, epochs + 1):

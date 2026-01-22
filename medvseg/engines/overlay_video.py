@@ -45,6 +45,7 @@ def _calibrate_from_video(video: str, cfg: GateConfig) -> dict:
             metrics.append(motion_metrics(prev, curr, size=cfg.size, conf_sigma=cfg.conf_sigma, conf_thr=cfg.conf_thr))
         if i + 1 >= max_frames:
             break
+
     cap.release()
     return auto_calibrate(metrics, stable_quantile=cfg.stable_quantile, k_mad=cfg.k_mad)
 
@@ -58,6 +59,8 @@ def main():
     ap.add_argument("--smooth", type=float, default=0.5, help="temporal smoothing factor [0..1]")
     ap.add_argument("--half", type=int, default=1, help="use fp16 on cuda if 1")
     ap.add_argument("--min-area", type=int, default=50, help="drop tiny masks")
+    ap.add_argument("--save-masks", type=str, default="", help="(optional) save gated binary masks per frame to this dir")
+    ap.add_argument("--save-metrics", type=str, default="", help="(optional) save per-frame gate metrics to this CSV path")
     # motion gate
     ap.add_argument("--gate", type=int, default=1, help="enable motion-break gate")
     ap.add_argument("--gate-auto", type=int, default=1, help="auto-calibrate per-video thresholds (MAD)")
@@ -143,11 +146,19 @@ def main():
             "conf_thr": gate_cfg.conf_thr,
         })
 
+
+    mask_dir = Path(args.save_masks) if args.save_masks else None
+    if mask_dir is not None:
+        mask_dir.mkdir(parents=True, exist_ok=True)
+
+    metrics_csv = Path(args.save_metrics) if args.save_metrics else None
+    metrics_rows = []  # list[dict]
+    prev_for_metrics = None  # used when args.gate=0 but save-metrics is set
     prev_mask = None
     enabled_prev = False
 
     with torch.no_grad():
-        for frame_bgr in _iter_frames(cap):
+        for frame_idx, frame_bgr in enumerate(_iter_frames(cap)):
             # motion break?
             if args.gate:
                 is_break, met = gate.step(frame_bgr, fps)
@@ -162,7 +173,34 @@ def main():
                 else:
                     mask = None  # to be computed below
             else:
+                enabled = True
+                is_break = False
+                met = None
+                # optionally compute metrics even when gate is off
+                if metrics_csv is not None:
+                    if prev_for_metrics is not None:
+                        try:
+                            met = motion_metrics(prev_for_metrics, frame_bgr,
+                                                 size=int(args.gate_size),
+                                                 conf_sigma=float(args.gate_conf_sigma),
+                                                 conf_thr=float(args.gate_conf_thr))
+                        except Exception:
+                            met = None
+                    prev_for_metrics = frame_bgr.copy()
                 mask = None
+
+            # record metrics (if requested)
+            if metrics_csv is not None:
+                row = {
+                    "frame_idx": int(frame_idx),
+                    "enabled": int(1 if enabled else 0),
+                    "break": int(1 if is_break else 0),
+                }
+                if isinstance(met, dict):
+                    row.update({k: float(v) for k, v in met.items()})
+                metrics_rows.append(row)
+
+
 
             if mask is None:
                 inp = cv2.resize(frame_bgr, (args.resize, args.resize), interpolation=cv2.INTER_LINEAR)
@@ -183,9 +221,14 @@ def main():
                 prev_mask = sm
                 mask = (sm >= args.thr).astype(np.uint8)
 
+
                 if int(mask.sum()) < int(args.min_area):
                     mask[:] = 0
 
+            # save gated mask (optional)
+            if mask_dir is not None:
+                out_mask = (mask.astype(np.uint8) * 255)
+                cv2.imwrite(str(mask_dir / f"{int(frame_idx):05d}.png"), out_mask)
             overlay = frame_bgr.copy()
             overlay[mask > 0] = (0, 0, 255)
             out = cv2.addWeighted(frame_bgr, 0.65, overlay, 0.35, 0)
@@ -193,7 +236,21 @@ def main():
 
     cap.release()
     writer.release()
-    print("[OK] Saved video ->", str(save_path))
+        # write metrics csv (optional)
+    if metrics_csv is not None and metrics_rows:
+        import csv
+        fieldnames = ["frame_idx", "enabled", "break",
+                      "flow_mean", "flow_p95", "conf_mean", "conf_pct", "blur_var"]
+        extra = sorted({k for r in metrics_rows for k in r.keys()} - set(fieldnames))
+        fieldnames = fieldnames + extra
+        metrics_csv.parent.mkdir(parents=True, exist_ok=True)
+        with metrics_csv.open("w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=fieldnames)
+            w.writeheader()
+            for r in metrics_rows:
+                w.writerow(r)
+        print("[OK] Saved gate metrics ->", str(metrics_csv))
+
 
 if __name__ == "__main__":
     main()

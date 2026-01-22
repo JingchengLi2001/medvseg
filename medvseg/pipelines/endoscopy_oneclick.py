@@ -167,14 +167,14 @@ def main():
     merge_strategy = _env("MERGE_STRATEGY", "vote")
     vote_min = _envi("VOTE_MIN", 0)
     vote_min_seeds = _envi("VOTE_MIN_SEEDS", 1)
-    merge_topk = _envi("MERGE_TOPK", 0)
+    merge_topk = _envi("MERGE_TOPK", 3)
     uncert_val = _envf("UNCERT_VAL", 0.30)
 
     conf_sigma = _envf("CONF_SIGMA", 2.0)
     conf_thr = _envf("CONF_THR", 0.6)
     min_conf = _envf("MIN_CONF", 0.25)
     min_conf_pct = _envf("MIN_CONF_PCT", 0.15)
-    save_conf = _envi("SAVE_CONF", 0)
+    save_conf = _envi("SAVE_CONF", 1)
 
     video_src = _env("VIDEO_SRC", "")
     out_video = _env("OUT_VIDEO", "outputs/seg_overlay.mp4")
@@ -275,6 +275,7 @@ def main():
 
     # manual val set
     val_manual_root = Path("outputs/val_manual")
+    tune_dataset_root = dataset_root  # will switch to val_manual_root if manual set is available
     subprocess.run([sys.executable, "-m", "medvseg.engines.make_manual_val",
                     str(dataset_root), split, clip, str(resize), str(val_manual_root), _env("EVAL_ONLY_LIST","")] + seeds,
                    check=True, env=os.environ.copy())
@@ -282,6 +283,8 @@ def main():
     if _count_masks(val_manual_root / split) > 0:
         val_root = val_manual_root / split
         print(f"[INFO] Using MANUAL val set: {val_root}/{clip}")
+        tune_dataset_root = val_manual_root
+
     else:
         print("[WARN] Manual val set empty -> fallback to pseudo val (same as train).")
 
@@ -306,7 +309,7 @@ def main():
         print("[INFO] Auto-tuning PRED_TH on MANUAL frames...")
         # capture stdout from module
         out = subprocess.check_output([sys.executable, "-m", "medvseg.engines.auto_tune_threshold",
-                                       str(dataset_root), split, clip, str(ckpt), str(resize), _env("EVAL_ONLY_LIST","")] + seeds,
+                                       str(tune_dataset_root), split, clip, str(ckpt), str(resize), _env("EVAL_ONLY_LIST","")] + seeds,
                                       env=os.environ.copy(), text=True)
         out = out.strip()
         if out:
@@ -319,9 +322,14 @@ def main():
     # eval on manual seeds (optional)
     if _envi("EVAL_MANUAL_SEEDS", 1) == 1:
         seed_dir = dataset_root / split / clip / "masks"
-        if seed_dir.exists():
+        eval_frame_dir = frame_dir
+        eval_mask_dir = seed_dir
+        if tune_dataset_root == val_manual_root:
+            eval_frame_dir = val_manual_root / split / clip / "frames"
+            eval_mask_dir = val_manual_root / split / clip / "masks"
+        if eval_mask_dir.exists():
             subprocess.run([sys.executable, "-m", "medvseg.engines.eval_manual_seeds",
-                            str(frame_dir), str(seed_dir), str(ckpt), str(resize), str(pred_th)] + seeds,
+                            str(eval_frame_dir), str(eval_mask_dir), str(ckpt), str(resize), str(pred_th)] + seeds,
                            check=True)
 
     # overlay
@@ -336,8 +344,12 @@ def main():
         gate_conf_sigma = _envf("FLOW_GATE_CONF_SIGMA", 2.0)
         gate_conf_thr = _envf("FLOW_GATE_CONF_THR", 0.6)
         gate_dt_time = _envf("FLOW_GATE_DT_TIME", 1.0/25.0)
+        gate_save_masks = _env("GATE_SAVE_MASKS", "")
+        gate_save_metrics = _env("GATE_SAVE_METRICS", "")
+        eval_gate = _envi("EVAL_GATE", 0)
 
-        subprocess.run([sys.executable, "-m", "medvseg.engines.overlay_video",
+
+        cmd = [sys.executable, "-m", "medvseg.engines.overlay_video",
                         "--model", str(ckpt),
                         "--video-src", str(video_src),
                         "--save", str(out_video),
@@ -353,8 +365,24 @@ def main():
                         "--gate-size", str(gate_size),
                         "--gate-conf-sigma", str(gate_conf_sigma),
                         "--gate-conf-thr", str(gate_conf_thr),
-                        "--gate-dt-time", str(gate_dt_time)],
-                       check=True)
+                        "--gate-dt-time", str(gate_dt_time)]
+        if gate_save_masks:
+            cmd += ["--save-masks", str(gate_save_masks)]
+        if gate_save_metrics:
+            cmd += ["--save-metrics", str(gate_save_metrics)]
+        subprocess.run(cmd, check=True)
+
+        # optional gate summary
+        if eval_gate == 1 and gate_save_metrics:
+            try:
+                gcmd = [sys.executable, "-m", "medvseg.engines.eval_gate_metrics",
+                        str(gate_save_metrics)]
+                if gate_save_masks:
+                    gcmd += ["--masks-dir", str(gate_save_masks)]
+                subprocess.run(gcmd, check=False)
+            except Exception:
+                pass
+
     else:
         print("[WARN] VIDEO_SRC not set -> skip overlay video.")
 

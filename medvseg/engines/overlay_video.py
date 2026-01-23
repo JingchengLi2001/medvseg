@@ -68,6 +68,10 @@ def main():
     ap.add_argument("--gate-stable-quantile", type=float, default=0.6)
     ap.add_argument("--gate-k-mad", type=float, default=4.0)
     ap.add_argument("--gate-k-on", type=int, default=3)
+    ap.add_argument("--gate-on-ratio", type=float, default=1.0, help="hysteresis: flow_p95 must be < flow_p95_th * ratio to re-enable")
+    ap.add_argument("--gate-cooldown", type=int, default=0, help="hold disabled for N frames after each break")
+    ap.add_argument("--gate-cooldown-high", type=int, default=0, help="optional longer cooldown for severe breaks")
+    ap.add_argument("--gate-cooldown-high-mult", type=float, default=2.0, help="severe if flow_p95 > flow_p95_th * mult")
     ap.add_argument("--gate-size", type=int, default=256)
     ap.add_argument("--gate-conf-sigma", type=float, default=2.0)
     ap.add_argument("--gate-conf-thr", type=float, default=0.6)
@@ -103,6 +107,10 @@ def main():
         conf_sigma=args.gate_conf_sigma,
         conf_thr=args.gate_conf_thr,
         k_on=max(1, args.gate_k_on),
+        on_ratio=float(args.gate_on_ratio),
+        cooldown=max(0, int(args.gate_cooldown)),
+        cooldown_high=max(0, int(args.gate_cooldown_high)),
+        cooldown_high_mult=float(args.gate_cooldown_high_mult),
         auto=bool(args.gate_auto),
         calib_seconds=args.gate_calib_seconds,
         stable_quantile=args.gate_stable_quantile,

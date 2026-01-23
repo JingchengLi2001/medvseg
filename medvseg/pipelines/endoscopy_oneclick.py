@@ -340,6 +340,10 @@ def main():
         gate_auto = _envi("FLOW_GATE_AUTO", 1)
         gate_calib_seconds = _envf("FLOW_GATE_CALIB_SECONDS", 3.0)
         gate_k_on = _envi("FLOW_GATE_K_ON", 3)
+        gate_on_ratio = _envf("FLOW_GATE_ON_RATIO", 1.0)
+        gate_cooldown = _envi("FLOW_GATE_COOLDOWN", 0)
+        gate_cooldown_high = _envf("FLOW_GATE_COOLDOWN_HIGH", 10.0)
+        gate_cooldown_high_mult = _envf("FLOW_GATE_COOLDOWN_HIGH_MULT", 2.0)
         gate_size = _envi("FLOW_GATE_SIZE", 256)
         gate_conf_sigma = _envf("FLOW_GATE_CONF_SIGMA", 2.0)
         gate_conf_thr = _envf("FLOW_GATE_CONF_THR", 0.6)
@@ -362,6 +366,10 @@ def main():
                         "--gate-auto", str(gate_auto),
                         "--gate-calib-seconds", str(gate_calib_seconds),
                         "--gate-k-on", str(gate_k_on),
+                        "--gate-on-ratio", str(gate_on_ratio),
+                        "--gate-cooldown", str(gate_cooldown),
+                        "--gate-cooldown-high", str(gate_cooldown_high),
+                        "--gate-cooldown-high-mult", str(gate_cooldown_high_mult),
                         "--gate-size", str(gate_size),
                         "--gate-conf-sigma", str(gate_conf_sigma),
                         "--gate-conf-thr", str(gate_conf_thr),

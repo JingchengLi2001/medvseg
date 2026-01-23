@@ -154,6 +154,12 @@ class GateConfig:
     conf_thr: float = 0.6
     # temporal gating
     k_on: int = 3  # require k_on consecutive stable frames to enable segmentation
+    on_ratio: float = 1.0  # hysteresis: require flow_p95 < flow_p95_th * on_ratio to re-enable
+    # optional cooldown after a break (frames)
+    cooldown: int = 0
+    # optional longer cooldown for severe breaks (flow_p95 very high)
+    cooldown_high: int = 0
+    cooldown_high_mult: float = 2.0  # severe if flow_p95 > flow_p95_th * mult
     # auto calibration
     auto: bool = True
     calib_seconds: float = 3.0
@@ -173,6 +179,7 @@ class MotionGate:
         self.cfg = cfg
         self.enabled = False
         self.stable_count = 0
+        self.cooldown_left = 0
         self.th = None  # calibrated thresholds dict
 
         self._buf: Deque[np.ndarray] = deque()
@@ -180,6 +187,7 @@ class MotionGate:
     def reset(self):
         self.enabled = False
         self.stable_count = 0
+        self.cooldown_left = 0
         self._buf.clear()
 
     def set_thresholds(self, th: Dict[str, float]):
@@ -233,12 +241,34 @@ class MotionGate:
         )
 
         if is_break:
+            # disable immediately and start / extend cooldown window
             self.enabled = False
             self.stable_count = 0
+            cd = int(self.cfg.cooldown)
+            # if configured, use longer cooldown for very severe breaks (high flow)
+            if int(self.cfg.cooldown_high) > 0:
+                try:
+                    if met.get("flow_p95", 0.0) > th["flow_p95_th"] * float(self.cfg.cooldown_high_mult):
+                        cd = max(cd, int(self.cfg.cooldown_high))
+                except Exception:
+                    pass
+            self.cooldown_left = max(self.cooldown_left, cd)
         else:
-            self.stable_count += 1
-            if self.stable_count >= self.cfg.k_on:
-                self.enabled = True
+            if self.cooldown_left > 0:
+                self.cooldown_left -= 1
+                self.enabled = False
+                # require fresh stability after cooldown
+                self.stable_count = 0
+            else:
+                # hysteresis to avoid short "islands" near the break threshold
+                flow_on_th = th["flow_p95_th"] * float(getattr(self.cfg, "on_ratio", 1.0))
+                if met.get("flow_p95", 0.0) > flow_on_th:
+                    self.enabled = False
+                    self.stable_count = 0
+                else:
+                    self.stable_count += 1
+                    if self.stable_count >= self.cfg.k_on:
+                        self.enabled = True
 
-        met = {**met, "enabled": float(self.enabled), "stable_count": float(self.stable_count)}
+        met = {**met, "enabled": float(self.enabled), "stable_count": float(self.stable_count), "cooldown_left": float(self.cooldown_left)}
         return is_break, met

@@ -36,6 +36,16 @@ def _run_with_sysargv(argv: list[str]):
     frame_dir = dataset_root/split/clip/'frames'
     mask_dir = dataset_root/split/clip/'masks'
 
+    # If running on a pre-built MANUAL val set (outputs/val_manual),
+    # ignore provided name lists and just use whatever is present in frames/.
+    dr_norm = str(dataset_root).replace('\\', '/')
+    if '/val_manual' in dr_norm or dr_norm.endswith('val_manual'):
+        cand = []
+        for ext in ('*.png','*.jpg','*.jpeg','*.bmp'):
+            cand.extend([p.name for p in frame_dir.glob(ext)])
+        names = sorted(set(cand))
+
+
     device = 'cuda' if torch.cuda.is_available() else 'cpu'
     net = StudentUNet('resnet34', 3, 1).to(device).eval()
     state = torch.load(ckpt, map_location=device)
@@ -44,15 +54,20 @@ def _run_with_sysargv(argv: list[str]):
 
     probs = []
     gts = []
+    used = 0
+    skipped_no_frame = 0
+    skipped_no_mask = 0
     for name in names:
         im = cv2.imread(str(frame_dir/name), cv2.IMREAD_COLOR)
         if im is None:
+            skipped_no_frame += 1
             continue
         gt = cv2.imread(str(mask_dir/name), cv2.IMREAD_GRAYSCALE)
         if gt is None:
             if name in neg_list:
                 gt = np.zeros(im.shape[:2], np.uint8)
             else:
+                skipped_no_mask += 1
                 continue
 
         H,W = im.shape[:2]
@@ -67,7 +82,9 @@ def _run_with_sysargv(argv: list[str]):
         g = (gt>0).astype(np.uint8)
         probs.append(p_up)
         gts.append(g)
+        used += 1
 
+    print(f"[INFO] auto_th samples: requested={len(names)} used={used} skip_no_frame={skipped_no_frame} skip_no_mask={skipped_no_mask}")
     if not probs:
         print('')
         raise SystemExit

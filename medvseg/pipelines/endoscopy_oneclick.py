@@ -179,12 +179,24 @@ def main():
     video_src = _env("VIDEO_SRC", "")
     out_video = _env("OUT_VIDEO", "outputs/seg_overlay.mp4")
 
+    # Teacher backend for pseudo-label propagation (optional).
+    # TEACHER_BACKEND: baseline | modeltrack
+    teacher_backend = _env("TEACHER_BACKEND", "baseline").strip().lower()
+    teacher_ckpt = _env("TEACHER_CKPT", "").strip()
+    teacher_thr = _envf("TEACHER_THR", 0.5)
+    teacher_min_area = _envi("TEACHER_MIN_AREA", 50)
+    teacher_iou_track_min = _envf("TEACHER_IOU_TRACK_MIN", 0.0)
+
     clean = _envi("CLEAN", 1)
     if clean == 1:
         print("[INFO] Cleaning old outputs (only outputs/)...")
-        for pat in ["outputs/xmem_raw_seed_*", "outputs/pseudolabels_clean_seed_*",
+        patterns = ["outputs/xmem_raw_seed_*", "outputs/pseudolabels_clean_seed_*",
                     "outputs/pseudolabels_clean_multi", "outputs/runs/unet_r34",
-                    "outputs/val_manual", out_video]:
+                    "outputs/val_manual", out_video]
+        # If teacher_ckpt points under outputs/runs/unet_r34, do NOT delete it.
+        if teacher_backend == "modeltrack" and teacher_ckpt.startswith("outputs/runs/unet_r34"):
+            patterns = [p for p in patterns if p != "outputs/runs/unet_r34"]
+        for pat in patterns:
             for p in Path(".").glob(pat):
                 if p.is_dir():
                     shutil.rmtree(p, ignore_errors=True)
@@ -224,12 +236,20 @@ def main():
         if out_clean.exists(): shutil.rmtree(out_clean, ignore_errors=True)
 
         print(f"\n[INFO] ===== Seed {s} (tag={tag}) =====")
-        _run([sys.executable, "-m", "medvseg.engines.propagate_baseline",
-              "--images-root", str(tmp_images_root),
-              "--output-root", str(out_raw),
-              "--resize", str(resize),
-              "--seed-name", s],
-             log_path=logs_dir / f"propagate_seed_{tag}.log")
+        cmd_prop = [sys.executable, "-m", "medvseg.engines.propagate_teacher",
+                    "--images-root", str(tmp_images_root),
+                    "--output-root", str(out_raw),
+                    "--resize", str(resize),
+                    "--seed-name", s,
+                    "--backend", teacher_backend,
+                    "--thr", str(teacher_thr),
+                    "--min-area", str(teacher_min_area),
+                    "--iou-track-min", str(teacher_iou_track_min)]
+        if teacher_backend == "modeltrack":
+            if not teacher_ckpt:
+                raise SystemExit("[ERR] TEACHER_BACKEND=modeltrack but TEACHER_CKPT is empty")
+            cmd_prop += ["--teacher-ckpt", teacher_ckpt]
+        _run(cmd_prop, log_path=logs_dir / f"propagate_seed_{tag}.log")
 
         _prune_to_one_clip(out_raw, split, clip)
 

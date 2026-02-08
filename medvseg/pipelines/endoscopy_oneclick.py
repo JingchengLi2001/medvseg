@@ -107,6 +107,54 @@ def _drop_empty_masks_inplace(out_clean: Path, split: str, clip: str, minpix: in
             kept += 1
     print(f"[OK] drop-empty: kept={kept} removed={removed} (minpix={minpix})")
 
+
+
+def _inject_negative_frames(train_root: Path, dataset_root: Path, split: str, clip: str, resize: int, neg_list: List[str]) -> int:
+    """Inject explicit negative (empty-mask) frames into the TRAIN root.
+
+    Why: your current training set is dominated by positive pseudo-label frames.
+    Adding a few *true background* frames strongly suppresses false positives and
+    usually improves both SEED-MEAN dice and EVAL_LIST dice.
+
+    Implementation: create a new clip folder under train_root: {clip}__neg/{frames,masks}
+    containing resized frames + all-zero masks.
+    """
+    if not neg_list:
+        return 0
+
+    # Local imports to avoid hard dependency at module import time.
+    try:
+        import cv2  # type: ignore
+        import numpy as np  # type: ignore
+    except Exception as e:
+        print(f"[WARN] NEG_IN_TRAIN enabled but OpenCV/Numpy not available: {e}. Skip negative injection.")
+        return 0
+
+    src_frames = dataset_root / split / clip / "frames"
+    neg_clip = f"{clip}__neg"
+    dst_frames = train_root / neg_clip / "frames"
+    dst_masks = train_root / neg_clip / "masks"
+    dst_frames.mkdir(parents=True, exist_ok=True)
+    dst_masks.mkdir(parents=True, exist_ok=True)
+
+    kept = 0
+    for name in neg_list:
+        sp = src_frames / name
+        img = cv2.imread(str(sp))
+        if img is None:
+            print(f"[WARN] NEG frame missing: {sp}")
+            continue
+        img = cv2.resize(img, (int(resize), int(resize)), interpolation=cv2.INTER_AREA)
+        mp = dst_masks / name
+        fp = dst_frames / name
+        cv2.imwrite(str(fp), img)
+        zero = np.zeros((int(resize), int(resize)), dtype=np.uint8)
+        cv2.imwrite(str(mp), zero)
+        kept += 1
+
+    print(f"[OK] Injected NEG frames into training: {kept} -> {train_root}/{neg_clip}")
+    return kept
+
 def _estimate_flow_p95_threshold(flow_dir: Path) -> float | None:
     """
     Estimate a per-video flow_p95 threshold from saved flow npy files (stable subset + MAD).
@@ -293,6 +341,11 @@ def main():
 
     train_root = out_multi / split
 
+    # Optional: explicit negative frames (empty masks) to suppress false positives.
+    neg_list = _env("NEG_LIST", "").split()
+    if neg_list:
+        _inject_negative_frames(train_root, dataset_root, split, clip, resize, neg_list)
+
     # manual val set
     val_manual_root = Path("outputs/val_manual")
     tune_dataset_root = dataset_root  # will switch to val_manual_root if manual set is available
@@ -339,7 +392,7 @@ def main():
             except Exception:
                 print("[WARN] Failed to parse AUTO_TH output:", out)
 
-    # eval on manual seeds (optional)
+        # eval on manual seeds (optional)
     if _envi("EVAL_MANUAL_SEEDS", 1) == 1:
         seed_dir = dataset_root / split / clip / "masks"
         eval_frame_dir = frame_dir
@@ -347,10 +400,25 @@ def main():
         if tune_dataset_root == val_manual_root:
             eval_frame_dir = val_manual_root / split / clip / "frames"
             eval_mask_dir = val_manual_root / split / clip / "masks"
+
         if eval_mask_dir.exists():
-            subprocess.run([sys.executable, "-m", "medvseg.engines.eval_manual_seeds",
-                            str(eval_frame_dir), str(eval_mask_dir), str(ckpt), str(resize), str(pred_th)] + seeds,
-                           check=True)
+            # 1) Seed frames mean
+            subprocess.run([
+                sys.executable, "-m", "medvseg.engines.eval_manual_seeds",
+                "--label", "SEED",
+                str(eval_frame_dir), str(eval_mask_dir), str(ckpt), str(resize), str(pred_th),
+                *seeds,
+            ], check=True)
+
+            # 2) Eval-only list mean (if provided)
+            eval_only_list = _env("EVAL_ONLY_LIST", "").split()
+            if eval_only_list:
+                subprocess.run([
+                    sys.executable, "-m", "medvseg.engines.eval_manual_seeds",
+                    "--label", "EVAL",
+                    str(eval_frame_dir), str(eval_mask_dir), str(ckpt), str(resize), str(pred_th),
+                    *eval_only_list,
+                ], check=True)
 
     # overlay
     if video_src:
@@ -362,7 +430,7 @@ def main():
         gate_k_on = _envi("FLOW_GATE_K_ON", 3)
         gate_on_ratio = _envf("FLOW_GATE_ON_RATIO", 1.0)
         gate_cooldown = _envi("FLOW_GATE_COOLDOWN", 0)
-        gate_cooldown_high = _envf("FLOW_GATE_COOLDOWN_HIGH", 10.0)
+        gate_cooldown_high = _envi("FLOW_GATE_COOLDOWN_HIGH", 10)
         gate_cooldown_high_mult = _envf("FLOW_GATE_COOLDOWN_HIGH_MULT", 2.0)
         gate_size = _envi("FLOW_GATE_SIZE", 256)
         gate_conf_sigma = _envf("FLOW_GATE_CONF_SIGMA", 2.0)
